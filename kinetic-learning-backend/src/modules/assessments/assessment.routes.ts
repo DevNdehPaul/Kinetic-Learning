@@ -16,6 +16,13 @@ async function createAttempt(userId: string, type: "PLACEMENT"|"MODULE_TEST"|"FI
   return prisma.assessmentAttempt.create({ data: { userId, type, ...ids } });
 }
 
+async function publicQuestions(type: "PLACEMENT"|"MODULE_TEST"|"FINAL_TEST", ids: { programId?: string; moduleId?: string }) {
+  return prisma.question.findMany({
+    where: { isPublished: true, type, ...ids }, orderBy: { position: "asc" },
+    select: { id: true, prompt: true, points: true, position: true, options: { orderBy: { position: "asc" }, select: { id: true, text: true, position: true } } }
+  });
+}
+
 async function submitAttempt(attemptId: string, userId: string, body: unknown) {
   const parsed = submitSchema.safeParse(body);
   if (!parsed.success) return { error: { status: 400, body: { success: false, message: "Validation failed", errors: parsed.error.flatten().fieldErrors } } };
@@ -55,7 +62,8 @@ router.post("/programs/:id/placement", async (req: AuthenticatedRequest, res) =>
   const program = await prisma.program.findFirst({ where: { id: programId, isPublished: true }, select: { id: true } });
   if (!program) return res.status(404).json({ success: false, message: "Program not found" });
   const attempt = await createAttempt(req.userId!, "PLACEMENT", { programId });
-  return res.status(201).json({ success: true, data: { attempt } });
+  const questions = await publicQuestions("PLACEMENT", { programId });
+  return res.status(201).json({ success: true, data: { attempt, questions } });
 });
 
 router.post("/placement/:attemptId/submit", async (req: AuthenticatedRequest, res) => {
@@ -104,7 +112,8 @@ router.post("/modules/:id/test", async (req: AuthenticatedRequest, res) => {
   if (!module) return res.status(404).json({ success: false, message: "Module not found" });
   if (!await hasActiveEnrollment(req.userId!, module.course.programId)) return res.status(403).json({ success: false, message: "Active program enrollment required" });
   const attempt = await createAttempt(req.userId!, "MODULE_TEST", { moduleId });
-  return res.status(201).json({ success: true, data: { attempt } });
+  const questions = await publicQuestions("MODULE_TEST", { moduleId });
+  return res.status(201).json({ success: true, data: { attempt, questions } });
 });
 
 router.post("/modules/:id/retest", async (req: AuthenticatedRequest, res) => {
@@ -114,14 +123,16 @@ router.post("/modules/:id/retest", async (req: AuthenticatedRequest, res) => {
   const module = await prisma.module.findUnique({ where: { id: moduleId }, select: { course: { select: { programId: true } } } });
   if (!module || !await hasActiveEnrollment(req.userId!, module.course.programId)) return res.status(403).json({ success: false, message: "Active program enrollment required" });
   const attempt = await createAttempt(req.userId!, "MODULE_TEST", { moduleId });
-  return res.status(201).json({ success: true, data: { attempt } });
+  const questions = await publicQuestions("MODULE_TEST", { moduleId });
+  return res.status(201).json({ success: true, data: { attempt, questions } });
 });
 
 router.post("/programs/:id/final-test", async (req: AuthenticatedRequest, res) => {
   const programId = param(req.params.id); if (!programId) return res.status(400).json({ success: false, message: "Program ID is required" });
   if (!await hasActiveEnrollment(req.userId!, programId)) return res.status(403).json({ success: false, message: "Active program enrollment required" });
   const attempt = await createAttempt(req.userId!, "FINAL_TEST", { programId });
-  return res.status(201).json({ success: true, data: { attempt } });
+  const questions = await publicQuestions("FINAL_TEST", { programId });
+  return res.status(201).json({ success: true, data: { attempt, questions } });
 });
 
 router.post("/tests/:attemptId/submit", async (req: AuthenticatedRequest, res) => {
