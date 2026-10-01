@@ -1,0 +1,436 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  STUDENT
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  REVOKED
+}
+
+model User {
+  id            String     @id @default(uuid())
+  firstName     String
+  lastName      String
+  email         String     @unique
+  passwordHash  String
+  role          UserRole   @default(STUDENT)
+  status        UserStatus @default(ACTIVE)
+  emailVerified Boolean    @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  enrollments        Enrollment[]
+  refreshTokens      RefreshToken[]
+  chapterProgress    ChapterProgress[]
+  assessmentAttempts AssessmentAttempt[]
+  projectSubmissions ProjectSubmission[] @relation("ProjectOwner")
+  reviewedProjects   ProjectSubmission[] @relation("ProjectReviewer")
+  certificates       Certificate[]       @relation("CertificateOwner")
+  issuedCertificates Certificate[]       @relation("CertificateIssuer")
+  tutorSessions      TutorSession[]
+  xpEvents           XpEvent[]
+  badges             UserBadge[]
+
+  revokedEnrollments Enrollment[] @relation("EnrollmentRevokedBy")
+}
+
+model Program {
+  id          String  @id @default(uuid())
+  title       String
+  slug        String  @unique
+  description String?
+  imageUrl    String?
+
+  isPublished Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  courses            Course[]
+  enrollments        Enrollment[]
+  questions          Question[]
+  assessmentAttempts AssessmentAttempt[]
+  projectSubmissions ProjectSubmission[]
+  certificates       Certificate[]
+  tutorSessions      TutorSession[]
+  xpEvents           XpEvent[]
+  badges             UserBadge[]
+}
+
+model Course {
+  id        String @id @default(uuid())
+  programId String
+
+  title       String
+  slug        String
+  description String?
+
+  position    Int     @default(0)
+  isPublished Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  program       Program        @relation(fields: [programId], references: [id], onDelete: Cascade)
+  modules       Module[]
+  tutorSessions TutorSession[]
+
+  @@unique([programId, slug])
+  @@index([programId])
+}
+
+model Module {
+  id       String @id @default(uuid())
+  courseId String
+
+  title       String
+  slug        String
+  description String?
+
+  position    Int     @default(0)
+  isPublished Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course             Course              @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  chapters           Chapter[]
+  questions          Question[]
+  assessmentAttempts AssessmentAttempt[]
+  tutorSessions      TutorSession[]
+  xpEvents           XpEvent[]
+  badges             UserBadge[]
+
+  @@unique([courseId, slug])
+  @@index([courseId])
+}
+
+model Chapter {
+  id       String @id @default(uuid())
+  moduleId String
+
+  title       String
+  slug        String
+  description String?
+  content     String?
+
+  position    Int     @default(0)
+  isPublished Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  module             Module              @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  progress           ChapterProgress[]
+  questions          Question[]
+  assessmentAttempts AssessmentAttempt[]
+  tutorSessions      TutorSession[]
+  xpEvents           XpEvent[]
+  badges             UserBadge[]
+
+  @@unique([moduleId, slug])
+  @@index([moduleId])
+}
+
+model Enrollment {
+  id        String @id @default(uuid())
+  userId    String
+  programId String
+
+  status EnrollmentStatus @default(ACTIVE)
+
+  enrolledAt  DateTime  @default(now())
+  completedAt DateTime?
+  revokedAt   DateTime?
+
+  revokedById      String?
+  revocationReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  revokedBy User? @relation("EnrollmentRevokedBy", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, programId])
+  @@index([userId])
+  @@index([programId])
+  @@index([status])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  userId    String
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model ChapterProgress {
+  id          String   @id @default(uuid())
+  userId      String
+  chapterId   String
+  completedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chapter Chapter @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, chapterId])
+  @@index([userId])
+  @@index([chapterId])
+}
+
+enum QuestionType {
+  PLACEMENT
+  CHAPTER
+  MODULE_TEST
+  FINAL_TEST
+}
+
+enum AttemptType {
+  PLACEMENT
+  CHAPTER
+  MODULE_TEST
+  FINAL_TEST
+}
+
+model Question {
+  id          String       @id @default(uuid())
+  type        QuestionType
+  prompt      String
+  explanation String?
+  points      Int          @default(1)
+  position    Int          @default(0)
+  isPublished Boolean      @default(false)
+
+  programId String?
+  moduleId  String?
+  chapterId String?
+
+  program Program?         @relation(fields: [programId], references: [id], onDelete: Cascade)
+  module  Module?          @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  chapter Chapter?         @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  options QuestionOption[]
+  answers AttemptAnswer[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([programId])
+  @@index([moduleId])
+  @@index([chapterId])
+}
+
+model QuestionOption {
+  id         String  @id @default(uuid())
+  questionId String
+  text       String
+  isCorrect  Boolean @default(false)
+  position   Int     @default(0)
+
+  question Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  answers  AttemptAnswer[]
+
+  @@index([questionId])
+}
+
+model AssessmentAttempt {
+  id          String      @id @default(uuid())
+  userId      String
+  type        AttemptType
+  programId   String?
+  moduleId    String?
+  chapterId   String?
+  score       Int?
+  maxScore    Int?
+  percentage  Int?
+  passed      Boolean?
+  submittedAt DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user    User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program Program?        @relation(fields: [programId], references: [id], onDelete: Cascade)
+  module  Module?         @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  chapter Chapter?        @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  answers AttemptAnswer[]
+
+  @@index([userId])
+  @@index([type])
+  @@index([programId])
+  @@index([moduleId])
+  @@index([chapterId])
+}
+
+model AttemptAnswer {
+  id            String  @id @default(uuid())
+  attemptId     String
+  questionId    String
+  optionId      String
+  isCorrect     Boolean
+  pointsAwarded Int     @default(0)
+
+  attempt  AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question          @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  option   QuestionOption    @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+}
+
+enum ProjectStatus {
+  PENDING_REVIEW
+  APPROVED
+  REVISION_REQUIRED
+  REJECTED
+}
+
+model ProjectSubmission {
+  id            String        @id @default(uuid())
+  userId        String
+  programId     String
+  title         String
+  description   String?
+  projectUrl    String
+  repositoryUrl String?
+  status        ProjectStatus @default(PENDING_REVIEW)
+  feedback      String?
+  submittedAt   DateTime      @default(now())
+  reviewedAt    DateTime?
+  reviewedById  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  user       User    @relation("ProjectOwner", fields: [userId], references: [id], onDelete: Cascade)
+  program    Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  reviewedBy User?   @relation("ProjectReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, programId])
+  @@index([programId])
+  @@index([status])
+}
+
+model Certificate {
+  id               String   @id @default(uuid())
+  userId           String
+  programId        String
+  verificationCode String   @unique
+  issuedAt         DateTime @default(now())
+  issuedById       String?
+  createdAt        DateTime @default(now())
+
+  user     User    @relation("CertificateOwner", fields: [userId], references: [id], onDelete: Cascade)
+  program  Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+  issuedBy User?   @relation("CertificateIssuer", fields: [issuedById], references: [id], onDelete: SetNull)
+
+  @@unique([userId, programId])
+  @@index([programId])
+}
+
+enum TutorMessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model TutorSession {
+  id        String   @id @default(uuid())
+  userId    String
+  programId String?
+  courseId  String?
+  moduleId  String?
+  chapterId String?
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program  Program?       @relation(fields: [programId], references: [id], onDelete: SetNull)
+  course   Course?        @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  module   Module?        @relation(fields: [moduleId], references: [id], onDelete: SetNull)
+  chapter  Chapter?       @relation(fields: [chapterId], references: [id], onDelete: SetNull)
+  messages TutorMessage[]
+
+  @@index([userId])
+  @@index([programId])
+  @@index([chapterId])
+}
+
+model TutorMessage {
+  id        String           @id @default(uuid())
+  sessionId String
+  role      TutorMessageRole
+  content   String
+  createdAt DateTime         @default(now())
+
+  session TutorSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+model XpEvent {
+  id        String   @id @default(uuid())
+  userId    String
+  sourceKey String   @unique
+  type      String
+  points    Int
+  earnedAt  DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program   Program? @relation(fields: [programId], references: [id])
+  programId String?
+  module    Module?  @relation(fields: [moduleId], references: [id])
+  moduleId  String?
+  chapter   Chapter? @relation(fields: [chapterId], references: [id])
+  chapterId String?
+
+  @@index([userId, earnedAt])
+  @@index([userId, type])
+}
+
+model UserBadge {
+  id       String   @id @default(uuid())
+  userId   String
+  badgeKey String
+  earnedAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program   Program? @relation(fields: [programId], references: [id])
+  programId String?
+  module    Module?  @relation(fields: [moduleId], references: [id])
+  moduleId  String?
+  chapter   Chapter? @relation(fields: [chapterId], references: [id])
+  chapterId String?
+
+  @@unique([userId, badgeKey])
+  @@index([userId, earnedAt])
+}
